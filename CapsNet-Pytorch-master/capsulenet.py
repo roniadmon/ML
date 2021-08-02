@@ -121,7 +121,7 @@ def test(model, test_loader, args):
     test_loss = 0
     correct = 0
     for x, y in test_loader:
-        y = torch.zeros(y.size(0), 10).scatter_(1, y.view(-1, 1), 1.)
+        y = torch.zeros(y.size(0), 5).scatter_(1, y.view(-1, 1), 1.)
         x, y = Variable(x.cuda(), volatile=True), Variable(y.cuda())
         y_pred, x_recon = model(x)
         test_loss += caps_loss(y, y_pred, x, x_recon, args.lam_recon).item() * x.size(0)  # sum up batch loss
@@ -159,9 +159,9 @@ def train(model, train_loader, test_loader, args):
         lr_decay.step()  # decrease the learning rate by multiplying a factor `gamma`
         ti = time()
         training_loss = 0.0
-        for i, (x, y) in enumerate(train_loader):  # batch training
-            y = torch.zeros(y.size(0), 10).scatter_(1, y.view(-1, 1), 1.)  # change to one-hot coding
-            x, y = Variable(x.cuda()), Variable(y.cuda())  # convert input data to GPU Variable
+        for i, (x, y) in enumerate(train_loader):
+            # y = torch.zeros(size(0), 10).scatter_(1, y.view(-1, 1).long(), 1.)  # change to one-hot coding
+            # x, y = Variable(x.cuda()), Variable(y.cuda())  # convert input data to GPU Variable
 
             optimizer.zero_grad()  # set gradients of optimizer to zero
             y_pred, x_recon = model(x, y)  # forward
@@ -191,53 +191,67 @@ def train(model, train_loader, test_loader, args):
     return model
 
 
-def load_mnist(path='./data', download=False, batch_size=100, shift_pixels=2):
+def load_mnist(mnist, path='./data', download=False, batch_size=100, shift_pixels=2):
     """
     Construct dataloaders for training and test data. Data augmentation is also done here.
+    :param mnist: mnist
     :param path: file path of the dataset
     :param download: whether to download the original data
     :param batch_size: batch size
     :param shift_pixels: maximum number of pixels to shift in each direction
     :return: train_loader, test_loader
     """
-    kwargs = {'num_workers': 1, 'pin_memory': True}
+    if(mnist):
+        kwargs = {'num_workers': 1, 'pin_memory': True}
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST(path, train=True, download=download,
-                       transform=transforms.Compose([transforms.RandomCrop(size=28, padding=shift_pixels),
-                                                     transforms.ToTensor()])),
-        batch_size=batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST(path, train=False, download=download,
-                       transform=transforms.ToTensor()),
-        batch_size=batch_size, shuffle=True, **kwargs)
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST(path, train=True, download=download,
+                           transform=transforms.Compose([transforms.RandomCrop(size=28, padding=shift_pixels),
+                                                         transforms.ToTensor()])),
+            batch_size=batch_size, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+            datasets.MNIST(path, train=False, download=download,
+                           transform=transforms.ToTensor()),
+            batch_size=batch_size, shuffle=True, **kwargs)
 
-    return train_loader, test_loader
+        return train_loader, test_loader
+    else:
+        os.chdir(os.getcwd())
+        path = '../data/'
+        fieldname = '_19790101-20190228.npy'
+        x1_arr = np.load(path+'z1000'+fieldname) # geopotential height data (9*9 resolution)
+        x2_arr = np.load(path+'pv300'+fieldname) # potential vorticity data (9*9 resolution)
 
-    # os.chdir(os.getcwd())
-    # path = '../data/'
-    # fieldname = '_19790101-20190228.npy'
-    # x1_arr = np.load(path+'z1000'+fieldname) # geopotential height data (9*9 resolution)
-    # x2_arr = np.load(path+'pv300'+fieldname) # potential vorticity data (9*9 resolution)
+        x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0],x1_arr.shape[1]*x1_arr.shape[2]])) # normalize and flatten
+        x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0],x2_arr.shape[1]*x2_arr.shape[2]]))
+        y_arr = np.load(path+'rain_basin_19790101-20190228.npy') # rain data
 
-    # x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0],x1_arr.shape[1]*x1_arr.shape[2]])) # normalize and flatten
-    # x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0],x2_arr.shape[1]*x2_arr.shape[2]]))
-    # y_arr = np.load(path+'rain_basin_19790101-20190228.npy') # rain data
+        tensor_x = torch.Tensor(np.concatenate([x1_arr_flat,x2_arr_flat],axis=1)) # join z and pv data
+        tensor_y = torch.Tensor(y_arr)
 
-    # tensor_x = torch.Tensor(np.concatenate([x1_arr_flat,x2_arr_flat],axis=1)) # join z and pv data
-    # tensor_y = torch.Tensor(y_arr)
+        forecast_dataset = TensorDataset(tensor_x,tensor_y) # creates a dataset based on tensors
+        forecast_dataset2 = []
 
-    # forecast_dataset = TensorDataset(tensor_x,tensor_y) # creates a dataset based on tensors
-    # forecast_dataset2 = []
+        for j in forecast_dataset:
+            classification = []
+            for i in j[1]:
+               if(i < 0.1):
+                   classification.append(0)
+               elif(i < 4):
+                   classification.append(1)
+               elif(i < 16):
+                   classification.append(2)
+               elif(i < 32):
+                   classification.append(3)
+               else:
+                   classification.append(4)
+            forecast_dataset2.append( ( j[0].reshape((2, 9, 9)) , torch.Tensor(classification)   ) )
 
+        training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [2195,1464])
+        training_dataloader = DataLoader(training_ds,batch_size=200,shuffle=True)
+        valid_dataloader = DataLoader(validation_ds,batch_size=200)
 
-    # for j in forecast_dataset:
-    #   forecast_dataset2.append( ( j[0].reshape((3, 9, 9)) , j[1] ) ) # Rotem: ask about order of 162
-    # training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [2195,1464])
-    # training_dataloader = DataLoader(training_ds,batch_size=200,shuffle=True)
-    # valid_dataloader = DataLoader(validation_ds,batch_size=200)
-
-    # return training_dataloader, valid_dataloader
+        return training_dataloader, valid_dataloader
 
 if __name__ == "__main__":
     import argparse
@@ -273,7 +287,7 @@ if __name__ == "__main__":
 
     # load data
     train_loader, test_loader = load_mnist(args.data_dir, download=False, batch_size=args.batch_size)
-
+    print(train_loader[1])
     # define model
     model = CapsuleNet(input_size=[1, 28, 28], classes=10, routings=3)
     model.cuda()
