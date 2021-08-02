@@ -42,13 +42,13 @@ class CapsuleNet(nn.Module):
         self.routings = routings
 
         # Layer 1: Just a conventional Conv2D layer
-        self.conv1 = nn.Conv2d(input_size[0], 256, kernel_size=9, stride=1, padding=0)
+        self.conv1 = nn.Conv2d(input_size[0], 256, kernel_size=2, stride=1, padding=0)
 
         # Layer 2: Conv2D layer with `squash` activation, then reshape to [None, num_caps, dim_caps]
-        self.primarycaps = PrimaryCapsule(256, 256, 8, kernel_size=9, stride=2, padding=0)
+        self.primarycaps = PrimaryCapsule(256, 256, 8, kernel_size=2, stride=2, padding=0)
 
         # Layer 3: Capsule layer. Routing algorithm works here.
-        self.digitcaps = DenseCapsule(in_num_caps=32*6*6, in_dim_caps=8,
+        self.digitcaps = DenseCapsule(in_num_caps=3840, in_dim_caps=8,
                                       out_num_caps=classes, out_dim_caps=16, routings=routings)
 
         # Decoder network.
@@ -70,8 +70,14 @@ class CapsuleNet(nn.Module):
         length = x.norm(dim=-1)
         if y is None:  # during testing, no label given. create one-hot coding using `length`
             index = length.max(dim=1)[1]
-            y = Variable(torch.zeros(length.size()).scatter_(1, index.view(-1, 1).cpu().data, 1.).cuda())
+            y = Variable(torch.zeros(length.size()).scatter_(1, index.view(-1, 1).cpu().data, 1.)) #.cuda())
+        #print("forward torch.tensor(x).shape")
+        #print(torch.tensor(x).shape)
+        #print(torch.tensor(y.shape))
+        #print(torch.tensor(y[:,:, None]).shape)
+        #print(torch.tensor(y[:, None]).shape)
         reconstruction = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
+        #reconstruction = self.decoder((x * y[:, None]).view(x.size(0), -1))
         return length, reconstruction.view(-1, *self.input_size)
 
 
@@ -102,7 +108,7 @@ def show_reconstruction(model, test_loader, n_images, args):
 
     model.eval()
     for x, _ in test_loader:
-        x = Variable(x[:min(n_images, x.size(0))].cuda(), volatile=True)
+        x = Variable(x[:min(n_images, x.size(0))], volatile=True) #.cuda(), volatile=True)
         _, x_recon = model(x)
         data = np.concatenate([x.data, x_recon.data])
         img = combine_images(np.transpose(data, [0, 2, 3, 1]))
@@ -121,8 +127,8 @@ def test(model, test_loader, args):
     test_loss = 0
     correct = 0
     for x, y in test_loader:
-        y = torch.zeros(y.size(0), 5).scatter_(1, y.view(-1, 1), 1.)
-        x, y = Variable(x.cuda(), volatile=True), Variable(y.cuda())
+        #y = torch.zeros(y.size(0), 3).scatter_(1, y.view(-1, 1).long(), 1.)
+        #x, y = Variable(x.cuda(), volatile=True), Variable(y.cuda())
         y_pred, x_recon = model(x)
         test_loss += caps_loss(y, y_pred, x, x_recon, args.lam_recon).item() * x.size(0)  # sum up batch loss
         y_pred = y_pred.data.max(1)[1]
@@ -160,8 +166,8 @@ def train(model, train_loader, test_loader, args):
         ti = time()
         training_loss = 0.0
         for i, (x, y) in enumerate(train_loader):
-            # y = torch.zeros(size(0), 10).scatter_(1, y.view(-1, 1).long(), 1.)  # change to one-hot coding
-            # x, y = Variable(x.cuda()), Variable(y.cuda())  # convert input data to GPU Variable
+            #y = torch.zeros(y.size(0), 3).scatter_(1, y.view(-1, 1).long(), 1.)  # change to one-hot coding
+            #x, y = Variable(x.cuda()), Variable(y.cuda())  # convert input data to GPU Variable
 
             optimizer.zero_grad()  # set gradients of optimizer to zero
             y_pred, x_recon = model(x, y)  # forward
@@ -191,7 +197,7 @@ def train(model, train_loader, test_loader, args):
     return model
 
 
-def load_mnist(mnist, path='./data', download=False, batch_size=100, shift_pixels=2):
+def load_mnist(mnist, path='./data/mnist', download=False, batch_size=100, shift_pixels=2, location=1):
     """
     Construct dataloaders for training and test data. Data augmentation is also done here.
     :param mnist: mnist
@@ -199,6 +205,7 @@ def load_mnist(mnist, path='./data', download=False, batch_size=100, shift_pixel
     :param download: whether to download the original data
     :param batch_size: batch size
     :param shift_pixels: maximum number of pixels to shift in each direction
+    :param location: maximum number of pixels to shift in each direction
     :return: train_loader, test_loader
     """
     if(mnist):
@@ -217,37 +224,34 @@ def load_mnist(mnist, path='./data', download=False, batch_size=100, shift_pixel
         return train_loader, test_loader
     else:
         os.chdir(os.getcwd())
-        path = '../data/'
-        fieldname = '_19790101-20190228.npy'
-        x1_arr = np.load(path+'z1000'+fieldname) # geopotential height data (9*9 resolution)
-        x2_arr = np.load(path+'pv300'+fieldname) # potential vorticity data (9*9 resolution)
+        fieldname = '_hourly_200902-201912.npy'
+        x1_arr = np.load(path+'z1000' + fieldname)  # geopotential height data (9*9 resolution)
+        x2_arr = np.load(path+'ta1000' + fieldname)  # potential vorticity data (9*9 resolution)
+        x3_arr = np.load(path+'z500' + fieldname)  # geopotential height data (9*9 resolution)
 
-        x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0],x1_arr.shape[1]*x1_arr.shape[2]])) # normalize and flatten
-        x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0],x2_arr.shape[1]*x2_arr.shape[2]]))
-        y_arr = np.load(path+'rain_basin_19790101-20190228.npy') # rain data
+        x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0], x1_arr.shape[1] * x1_arr.shape[2]]))
+        x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0], x2_arr.shape[1] * x2_arr.shape[2]]))
+        x3_arr_flat = stats.zscore(x2_arr.reshape([x3_arr.shape[0], x3_arr.shape[1] * x3_arr.shape[2]]))
+        y_arr = np.load(path+'rain_hourly_20090201-20191231.npy')  # rain data
 
-        tensor_x = torch.Tensor(np.concatenate([x1_arr_flat,x2_arr_flat],axis=1)) # join z and pv data
+        tensor_x = torch.Tensor(np.concatenate([x1_arr_flat, x2_arr_flat, x3_arr_flat], axis=1))
         tensor_y = torch.Tensor(y_arr)
 
         forecast_dataset = TensorDataset(tensor_x,tensor_y) # creates a dataset based on tensors
         forecast_dataset2 = []
 
         for j in forecast_dataset:
-            classification = []
-            for i in j[1]:
-               if(i < 0.1):
-                   classification.append(0)
-               elif(i < 4):
-                   classification.append(1)
-               elif(i < 16):
-                   classification.append(2)
-               elif(i < 32):
-                   classification.append(3)
-               else:
-                   classification.append(4)
-            forecast_dataset2.append( ( j[0].reshape((2, 9, 9)) , torch.Tensor(classification)   ) )
-
-        training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [2195,1464])
+            classification = torch.zeros(3)
+            i = j[1][location]# for i in j[1]:
+            if(i < 0.1):
+               classification[0] = 1
+            elif(i <= 3):
+               classification[1] = 1
+            else:
+               classification[2] = 1
+            forecast_dataset2.append( ( j[0].reshape((1, 42, 14)) , classification ) )
+        length = int(len(forecast_dataset2)/2)
+        training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [length,length])
         training_dataloader = DataLoader(training_ds,batch_size=200,shuffle=True)
         valid_dataloader = DataLoader(validation_ds,batch_size=200)
 
@@ -290,7 +294,7 @@ if __name__ == "__main__":
     print(train_loader[1])
     # define model
     model = CapsuleNet(input_size=[1, 28, 28], classes=10, routings=3)
-    model.cuda()
+    #model.cuda()
     print(model)
 
     # train or test

@@ -51,6 +51,7 @@ class DenseCapsule(nn.Module):
         # weight.size   =[       out_num_caps, in_num_caps, out_dim_caps, in_dim_caps]
         # torch.matmul: [out_dim_caps, in_dim_caps] x [in_dim_caps, 1] -> [out_dim_caps, 1]
         # => x_hat.size =[batch, out_num_caps, in_num_caps, out_dim_caps]
+        #print("DenseCapsule x.shape", x.shape)
         x_hat = torch.squeeze(torch.matmul(self.weight, x[:, None, :, :, None]), dim=-1)
 
         # In forward pass, `x_hat_detached` = `x_hat`;
@@ -59,7 +60,7 @@ class DenseCapsule(nn.Module):
 
         # The prior for coupling coefficient, initialized as zeros.
         # b.size = [batch, out_num_caps, in_num_caps]
-        b = Variable(torch.zeros(x.size(0), self.out_num_caps, self.in_num_caps)).cuda()
+        b = Variable(torch.zeros(x.size(0), self.out_num_caps, self.in_num_caps)) #.cuda()
 
         assert self.routings > 0, 'The \'routings\' should be > 0.'
         for i in range(self.routings):
