@@ -41,6 +41,7 @@ class CapsuleNet(nn.Module):
         self.classes = classes
         self.routings = routings
 
+        print(input_size)
         # Layer 1: Just a conventional Conv2D layer
         self.conv1 = nn.Conv2d(input_size[0], 256, kernel_size=2, stride=1, padding=0)
 
@@ -48,7 +49,7 @@ class CapsuleNet(nn.Module):
         self.primarycaps = PrimaryCapsule(256, 256, 8, kernel_size=2, stride=2, padding=0)
 
         # Layer 3: Capsule layer. Routing algorithm works here.
-        self.digitcaps = DenseCapsule(in_num_caps=3840, in_dim_caps=8,
+        self.digitcaps = DenseCapsule(in_num_caps=1152, in_dim_caps=8,
                                       out_num_caps=classes, out_dim_caps=16, routings=routings)
 
         # Decoder network.
@@ -249,7 +250,7 @@ def load_mnist(mnist, path='./data/mnist', download=False, batch_size=100, shift
                classification[1] = 1
             else:
                classification[2] = 1
-            forecast_dataset2.append( ( j[0].reshape((1, 42, 14)) , classification ) )
+            forecast_dataset2.append( ( j[0].reshape((3, 14 , 14)) , classification ) )
         length = int(len(forecast_dataset2)/2)
         training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [length,length])
         training_dataloader = DataLoader(training_ds,batch_size=200,shuffle=True)
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     train_loader, test_loader = load_mnist(args.data_dir, download=False, batch_size=args.batch_size)
     print(train_loader[1])
     # define model
-    model = CapsuleNet(input_size=[1, 28, 28], classes=10, routings=3)
+    model = CapsuleNet(input_size=[3, 14, 14], classes=3, routings=3)
     #model.cuda()
     print(model)
 
