@@ -48,7 +48,7 @@ class CapsuleNet(nn.Module):
         self.primarycaps = PrimaryCapsule(256, 256, 8, kernel_size=2, stride=2, padding=0)
 
         # Layer 3: Capsule layer. Routing algorithm works here.
-        self.digitcaps = DenseCapsule(in_num_caps=3840, in_dim_caps=8,
+        self.digitcaps = DenseCapsule(in_num_caps=512, in_dim_caps=8,
                                       out_num_caps=classes, out_dim_caps=16, routings=routings)
 
         # Decoder network.
@@ -190,7 +190,7 @@ def train(model, train_loader, test_loader, args):
             torch.save(model.state_dict(), args.save_dir + '/epoch%d.pkl' % epoch)
             print("best val_acc increased to %.4f" % best_val_acc)
     logfile.close()
-    torch.save(model.state_dict(), args.save_dir + '/trained_model.pkl')
+    torch.save(model.state_dict(), args.save_dir + '/trained_model_daily.pkl')
     print('Trained model saved to \'%s/trained_model.h5\'' % args.save_dir)
     print("Total time = %ds" % (time() - t0))
     print('End Training' + '-' * 70)
@@ -224,39 +224,45 @@ def load_mnist(mnist, path='./data/mnist', download=False, batch_size=100, shift
         return train_loader, test_loader
     else:
         os.chdir(os.getcwd())
-        fieldname = '_hourly_200902-201912.npy'
+        fieldname = '_19790101-20190228.npy'
         x1_arr = np.load(path+'z1000' + fieldname)  # geopotential height data (9*9 resolution)
-        x2_arr = np.load(path+'ta1000' + fieldname)  # potential vorticity data (9*9 resolution)
-        x3_arr = np.load(path+'z500' + fieldname)  # geopotential height data (9*9 resolution)
+        x2_arr = np.load(path+'pv300' + fieldname)  # potential vorticity data (9*9 resolution)
+        #x3_arr = np.load(path+'z500' + fieldname)  # geopotential height data (9*9 resolution)
 
-        x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0], x1_arr.shape[1] * x1_arr.shape[2]]))
-        x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0], x2_arr.shape[1] * x2_arr.shape[2]]))
-        x3_arr_flat = stats.zscore(x2_arr.reshape([x3_arr.shape[0], x3_arr.shape[1] * x3_arr.shape[2]]))
-        y_arr = np.load(path+'rain_hourly_20090201-20191231.npy')  # rain data
+        #x1_arr_flat = stats.zscore(x1_arr.reshape([x1_arr.shape[0], x1_arr.shape[1] * x1_arr.shape[2]]))
+        #x2_arr_flat = stats.zscore(x2_arr.reshape([x2_arr.shape[0], x2_arr.shape[1] * x2_arr.shape[2]]))
+        #x3_arr_flat = stats.zscore(x2_arr.reshape([x3_arr.shape[0], x3_arr.shape[1] * x3_arr.shape[2]]))
+        y_arr = np.load(path+'rain'+fieldname)  # rain data
 
-        tensor_x = torch.Tensor(np.concatenate([x1_arr_flat, x2_arr_flat, x3_arr_flat], axis=1))
+        tensor_x = torch.Tensor(np.concatenate([x1_arr, x2_arr], axis=1))
+        print(tensor_x.shape)
         tensor_y = torch.Tensor(y_arr)
+        print(tensor_y.shape)
 
         forecast_dataset = TensorDataset(tensor_x,tensor_y) # creates a dataset based on tensors
         forecast_dataset2 = []
 
         for j in forecast_dataset:
-            classification = torch.zeros(3)
-            i = j[1][location]# for i in j[1]:
-            if(i < 0.1):
-               classification[0] = 1
-            elif(i <= 3):
-               classification[1] = 1
-            else:
-               classification[2] = 1
-            forecast_dataset2.append( ( j[0].reshape((1, 42, 14)) , classification ) )
+            classification = torch.zeros(5)
+            print(j[1])
+            for i in j[1]: #i = j[1][location]#
+                if(i < 0.1):
+                   classification[i] = 1
+                elif(i <= 4):
+                   classification[i] = 1
+                elif(i <= 16):
+                   classification[i] = 1
+                elif(i <= 32):
+                   classification[i] = 1
+                else:
+                   classification[i] = 1
+            forecast_dataset2.append( ( j[0].reshape((2, 9, 9)) , classification ) )
         length = int(len(forecast_dataset2)/2)
-        training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [length,length])
+        training_ds, validation_ds = torch.utils.data.random_split(forecast_dataset2, [length,length+1])
         training_dataloader = DataLoader(training_ds,batch_size=200,shuffle=True)
         valid_dataloader = DataLoader(validation_ds,batch_size=200)
 
         return training_dataloader, valid_dataloader
-
 if __name__ == "__main__":
     import argparse
     import os
